@@ -29,26 +29,56 @@ exports.getContract = async () => {
     return new web3.eth.Contract(minABI, contractAddress);
 };
 
-exports.transferWETH = async (amountToSend, sendingWallet, receivingWallet) => {
+exports.transferWETH = async (amountToSend, sendingWallet, receivingWallet, maxGasPrice) => {
 
-    let balance = await this.getWethBalance(await this.getContract(), sendingWallet.publicKey);
-    let gasPrice = await this.getGasPrice();
+    // maxGasPrice = Number(web3.utils.toHex(web3.utils.toWei(String(maxGasPrice), 'gwei')));
+    let balance = Number(await this.getWethBalance(await this.getContract(), sendingWallet.publicKey));
+    let gasPrice = Number(await this.getGasPrice());
     gasPrice = Math.round(gasPrice);
-
+    // gasPrice = Number(web3.utils.toHex(web3.utils.toWei(String(gasPrice), 'gwei')));
     console.log(`You have ${balance} WETH`);
     console.log(`Current gas price: ${gasPrice}`);
+    console.log(`max gas price to switch wallet: ${maxGasPrice}`);
 
-    let calculatedAmountToSend = balance - amountToSend;
+    if (gasPrice > maxGasPrice) {
+        throw new Error("current gas price is over your maximum setting from web3-wallet app.");
+    }
+    console.log(`nooooo`);
+    //crunch numbers
+    let amountPlusPercentage = ((Number(amountToSend) / 100) * 5) + Number(amountToSend);
+    console.log(`your last bid was: ${amountToSend}. I will keep ${amountPlusPercentage} in this wallet (5% more)`);
+    let amountToTransfer = 0;
+
+    //debugging value. REMOVE BEFORE PROD
+    balance = 100;
+
+    if ((balance - amountPlusPercentage > 0)) {
+        amountToTransfer = balance - amountPlusPercentage;
+    }
+    if (amountToTransfer == 0) {
+        throw new Error("amount to transfer is 0...");
+    }
+    //what happens if an amount becomes a string instead of integer and it keeps trying and keeps paying gas but it fucks up each time
+
     const providerEngine = getHDWalletProvider(sendingWallet);
     web3.setProvider(providerEngine);
 
     const erc20Contract = new web3.eth.Contract(transferABI, config.contractAddress);
 
-    const weiToSend = web3.utils.toWei(amountToSend.toString(), "ether");
+    const weiToSend = web3.utils.toWei(amountToTransfer.toString(), "ether");
+    // const stringMaxGasPrice = String(maxGasPrice);
+    //debugging value. REMOVE BEFORE PROD
 
+
+    let estimatedGas = await erc20Contract.methods.transfer(receivingWallet.publicKey, weiToSend).estimateGas({
+        gas: '500000000'
+    });
+    console.log(`estimated gas: ${estimatedGas}`);
+    let gasPriceInGWEI = estimatedGas * gasPrice;
+    console.log(`total in gwei for tx: ${gasPriceInGWEI}`);
+    console.log(`total eth for tx: ${web3.utils.fromWei(String(web3.utils.toWei(String(gasPriceInGWEI), 'gwei')), 'ether')}`);
     let receipt = await erc20Contract.methods.transfer(receivingWallet.publicKey, weiToSend).send({
         from: sendingWallet.publicKey,
-        gas: config.gasLimit
     });
     return receipt;
 
